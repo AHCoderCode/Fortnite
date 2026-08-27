@@ -1690,4 +1690,333 @@
         }
       }
     };
-    window.add
+    window.addEventListener("touchend", resetJoy);
+    window.addEventListener("touchcancel", resetJoy);
+
+    // Right-side screen swipe for touch camera look
+    let lookTouchId = null;
+    let lastLookX = 0,
+      lastLookY = 0;
+
+    renderer.domElement.addEventListener("touchstart", (e) => {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        let t = e.changedTouches[i];
+        if (t.clientX > window.innerWidth * 0.35 && lookTouchId === null) {
+          lookTouchId = t.identifier;
+          lastLookX = t.clientX;
+          lastLookY = t.clientY;
+        }
+      }
+    });
+
+    window.addEventListener("touchmove", (e) => {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        let t = e.changedTouches[i];
+        if (t.identifier === lookTouchId) {
+          let dx = t.clientX - lastLookX;
+          let dy = t.clientY - lastLookY;
+          lastLookX = t.clientX;
+          lastLookY = t.clientY;
+          W.yaw -= dx * (W.sensitivity * 1.8);
+          W.pitch = clamp(W.pitch - dy * (W.sensitivity * 1.8), -0.85, 0.65);
+        }
+      }
+    });
+
+    const resetLook = (e) => {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        if (e.changedTouches[i].identifier === lookTouchId) {
+          lookTouchId = null;
+        }
+      }
+    };
+    window.addEventListener("touchend", resetLook);
+    window.addEventListener("touchcancel", resetLook);
+
+    // Touch Action Buttons
+    $("#btnFire").addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      W.audio.resume();
+      if (W.build) placeBuild();
+      else player.attack();
+    });
+
+    $("#btnJump").addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      touchJumpTrigger = true;
+    });
+
+    $("#btnAim").addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      touchAiming = !touchAiming;
+      $("#btnAim").style.background = touchAiming ? "var(--lime)" : "";
+      $("#btnAim").style.color = touchAiming ? "#111" : "#fff";
+    });
+
+    $("#btnBuild").addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      toggleBuild();
+    });
+
+    $("#btnLoot").addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      player.pickup();
+    });
+
+    $("#btnReload").addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      if (W.build) W.buildRot = (W.buildRot + 1) % 4;
+      else player.reload();
+    });
+
+    $("#btnPov").addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      togglePerspective();
+    });
+  }
+
+  let settingsFrom = "menu";
+  function showSettings(from) {
+    settingsFrom = from;
+    $("#menu").classList.add("hidden");
+    $("#pause").classList.add("hidden");
+    $("#settings").classList.remove("hidden");
+  }
+  function closeSettings() {
+    $("#settings").classList.add("hidden");
+    $(settingsFrom === "menu" ? "#menu" : "#pause").classList.remove("hidden");
+  }
+
+  // ========================================================================
+  // GAME STATES
+  // ========================================================================
+  function start() {
+    $("#menu").classList.add("hidden");
+    $("#hud").classList.remove("hidden");
+    W.started = true;
+    W.phase = "playing";
+    W.audio.resume();
+    if (!isTouchDevice) {
+      try {
+        renderer.domElement.requestPointerLock?.();
+      } catch (_) {}
+    }
+    toast("DROPPED IN — 25 SURVIVORS REMAIN!");
+  }
+
+  function togglePause() {
+    if (!W.started || W.phase === "ended") return;
+    W.paused = !W.paused;
+    $("#pause").classList.toggle("hidden", !W.paused);
+    if (W.paused) document.exitPointerLock?.();
+  }
+
+  function toggleBuild() {
+    W.build = !W.build;
+    preview.visible = W.build;
+    $("#buildInfo").classList.toggle("hidden", !W.build);
+    $("#ammo").classList.toggle("hidden", W.build);
+    toast(W.build ? "BUILD MODE" : "COMBAT MODE");
+  }
+
+  // ========================================================================
+  // HUD UPDATES & RADAR MINIMAP
+  // ========================================================================
+  function updateHotbar() {
+    let h = $("#hotbar");
+    h.innerHTML = "";
+    player.inventory.forEach((w, i) => {
+      let d = document.createElement("div");
+      d.className = "slot " + (i === player.slot ? "active " : "") + (w.owned ? "" : "empty");
+      d.dataset.idx = i;
+      d.innerHTML = `<b>${i + 1}</b><span>${w.owned ? w.icon : "·"}</span><small>${
+        !w.owned ? "" : w.uses != null ? w.uses : w.ammo === Infinity ? "∞" : w.clip + "/" + w.ammo
+      }</small>`;
+      h.appendChild(d);
+    });
+
+    let w = player.weapon;
+    $("#ammo").innerHTML = w.owned
+      ? `<b>${w.clip === Infinity ? "∞" : w.clip != null ? w.clip : "—"}</b><span>${w.name}${
+          w.ammo != null && w.ammo !== Infinity ? " · " + w.ammo : ""
+        }</span>`
+      : "<b>—</b><span>EMPTY SLOT</span>";
+  }
+
+  function hitmark(isHeadshot = false) {
+    let hm = $("#hitmarker");
+    hm.classList.add("show");
+    hm.style.color = isHeadshot ? "var(--gold)" : "#fff";
+    W.audio.play(isHeadshot ? "crit" : "hit");
+    setTimeout(() => hm.classList.remove("show"), 110);
+  }
+
+  function toast(t) {
+    let e = $("#toast");
+    e.textContent = t;
+    e.className = "toast";
+    void e.offsetWidth;
+    e.className = "toast";
+  }
+
+  function feed(t) {
+    let d = document.createElement("div");
+    d.className = "feedline";
+    d.textContent = t;
+    $("#feed").prepend(d);
+    setTimeout(() => d.remove(), 5000);
+  }
+
+  function endGame(win) {
+    W.phase = "ended";
+    W.paused = true;
+    document.exitPointerLock?.();
+    $("#end").classList.remove("hidden");
+    $("#endEyebrow").textContent = win ? "VICTORY ROYALE" : "ELIMINATED";
+    $("#endTitle").textContent = win ? "#1 WINNER — APEX SURVIVOR" : "YOU PLACED #" + W.remaining;
+    $("#endKills").textContent = W.kills;
+    $("#survived").textContent = formatTime(W.time);
+    if (win) {
+      W.audio.play("elim");
+      $("#endTitle").style.color = "var(--lime)";
+    }
+  }
+
+  function formatTime(t) {
+    return String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(Math.floor(t % 60)).padStart(2, "0");
+  }
+
+  function updateHUD() {
+    if (!W.started) return;
+    $("#healthFill").style.width = player.health + "%";
+    $("#shieldFill").style.width = player.shield + "%";
+    $("#healthVal").textContent = Math.ceil(player.health);
+    $("#shieldVal").textContent = Math.ceil(player.shield);
+    $("#remaining").textContent = W.remaining;
+    $("#kills").textContent = W.kills;
+    for (const k of ["wood", "stone", "metal"]) $("#" + k).textContent = Math.floor(player.materials[k]);
+    $("#stormTimer").textContent = formatTime(Math.max(0, W.storm.timer));
+    drawMap();
+  }
+
+  function drawMap() {
+    let c = $("#minimap"),
+      x = c.getContext("2d"),
+      S = c.width;
+    x.clearRect(0, 0, S, S);
+
+    // Island landmass
+    x.fillStyle = "#1e5c44";
+    x.beginPath();
+    x.arc(S / 2, S / 2, S * 0.46, 0, TAU);
+    x.fill();
+
+    // POI text
+    if (W.pois) {
+      x.font = "bold 6px sans-serif";
+      x.textAlign = "center";
+      for (const p of W.pois) {
+        let px = S / 2 + (p[1] / CFG.map) * S;
+        let pz = S / 2 + (p[2] / CFG.map) * S;
+        x.fillStyle = "rgba(255,255,255,0.6)";
+        x.fillRect(px - 2, pz - 2, 4, 4);
+        x.fillText(p[0].split(" ")[0], px, pz - 4);
+      }
+    }
+
+    // Storm boundary ring
+    x.strokeStyle = "#8b5cf6";
+    x.lineWidth = 3;
+    x.beginPath();
+    x.arc(
+      S / 2 + (W.storm.cx / CFG.map) * S,
+      S / 2 + (W.storm.cz / CFG.map) * S,
+      (W.storm.radius / CFG.map) * S,
+      0,
+      TAU,
+    );
+    x.stroke();
+
+    // Enemy bot dots on radar
+    for (const b of W.bots) {
+      if (b.alive && b.mesh.position.distanceTo(player.mesh.position) < 260) {
+        x.fillStyle = "#ff4d68";
+        x.beginPath();
+        x.arc(
+          S / 2 + (b.mesh.position.x / CFG.map) * S,
+          S / 2 + (b.mesh.position.z / CFG.map) * S,
+          2.8,
+          0,
+          TAU,
+        );
+        x.fill();
+      }
+    }
+
+    // Player arrow
+    x.save();
+    x.translate(
+      S / 2 + (player.mesh.position.x / CFG.map) * S,
+      S / 2 + (player.mesh.position.z / CFG.map) * S,
+    );
+    x.rotate(-W.yaw);
+    x.fillStyle = "#ffffff";
+    x.beginPath();
+    x.moveTo(0, -7);
+    x.lineTo(5, 6);
+    x.lineTo(-5, 6);
+    x.closePath();
+    x.fill();
+    x.restore();
+  }
+
+  // ========================================================================
+  // MAIN GAME LOOP
+  // ========================================================================
+  let frames = 0,
+    lastFps = performance.now();
+
+  function loop() {
+    requestAnimationFrame(loop);
+    let dt = Math.min(clock.getDelta(), 0.05);
+
+    if (W.started && !W.paused) {
+      W.time += dt;
+      player.update(dt);
+      refreshBlockers(dt);
+
+      grid.clear();
+      for (const b of W.bots) if (b.alive) grid.add(b);
+      for (const b of W.bots) b.update(dt);
+
+      updateStorm(dt);
+      particles.update(dt);
+      updatePreview();
+      updateHUD();
+    }
+
+    renderer.info.reset();
+    renderer.render(scene, camera);
+    frames++;
+
+    let n = performance.now();
+    if (n - lastFps > 1000) {
+      let fps = (frames * 1000) / (n - lastFps);
+      $("#debug").innerHTML =
+        "FPS: " +
+        fps.toFixed(0) +
+        "<br>Draw: " +
+        renderer.info.render.calls +
+        "<br>Bots: " +
+        W.bots.filter((b) => b.alive).length;
+      frames = 0;
+      lastFps = n;
+    }
+  }
+
+  if (typeof THREE === "undefined") {
+    $("#loadText").textContent = "Three.js could not load. Check internet.";
+  } else {
+    init();
+  }
+})();
