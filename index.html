@@ -1,0 +1,131 @@
+<!doctype html>
+<!--
+  SKYFALL ROYALE — Run by double-clicking this index.html (internet required only for Three.js CDN).
+  Controls: WASD move, Shift sprint, Space jump, mouse look, click attack/fire, right click aim/rotate build,
+  1–5 inventory, E loot, Q/B build mode, wheel structure/weapon, R reload/rotate, Esc pause.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <title>Skyfall Royale</title>
+    <link
+      href="https://api.fontshare.com/v2/css?f[]=clash-display@500,600,700&f[]=satoshi@400,500,700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="game"></div>
+    <div id="loading" class="screen">
+      <div class="load-mark">
+        <svg viewBox="0 0 64 64" aria-label="Skyfall logo">
+          <path d="M32 3 58 18v28L32 61 6 46V18Z" />
+          <path d="m18 21 14 28 14-28-14 8Z" />
+        </svg>
+      </div>
+      <h2>GENERATING THE ISLAND</h2>
+      <div class="loader"><i></i></div>
+      <p id="loadText">Shaping terrain…</p>
+    </div>
+    <div id="menu" class="screen hidden">
+      <div class="menu-bg"></div>
+      <div class="brand">
+        <svg viewBox="0 0 64 64" aria-label="Skyfall Royale logo">
+          <path d="M32 3 58 18v28L32 61 6 46V18Z" />
+          <path d="m18 21 14 28 14-28-14 8Z" />
+        </svg>
+        <div><span>SKYFALL</span><b>ROYALE</b></div>
+      </div>
+      <div class="menu-card">
+        <div class="eyebrow">LAST ONE STANDING</div>
+        <h1>DROP IN.<br /><em>OWN THE STORM.</em></h1>
+        <p>A fast, fully procedural battle royale. Loot. Build. Survive.</p>
+        <button id="playBtn" class="primary">PLAY SOLO <span>→</span></button
+        ><button id="settingsBtn" class="ghost">SETTINGS</button>
+        <div class="menu-foot"><span>25 COMBATANTS</span><span>1 ISLAND</span><span>1 VICTOR</span></div>
+      </div>
+    </div>
+    <div id="hud" class="hidden">
+      <div id="debug">FPS: --<br />Draw: --</div>
+      <div id="compass">N&nbsp;&nbsp;&nbsp;NE&nbsp;&nbsp;&nbsp;E</div>
+      <div id="poi">PLEASANT PARK</div>
+      <div class="top-right">
+        <canvas id="minimap" width="190" height="190"></canvas>
+        <div id="stormBox"><b>STORM EYE</b><span id="stormTimer">01:00</span></div>
+        <div class="match-stat">
+          <span>◉ <b id="remaining">25</b></span
+          ><span>✦ <b id="kills">0</b></span>
+        </div>
+      </div>
+      <div id="feed"></div>
+      <div id="interact" class="hidden"><b>E</b><span>Pick up</span></div>
+      <div id="hitmarker">×</div>
+      <div id="crosshair"><i></i><i></i><i></i><i></i></div>
+      <div class="bottom-left">
+        <div class="identity">
+          <div class="avatar">SF</div>
+          <b>YOU</b><span>LV. 37</span>
+        </div>
+        <div class="statbar shield">
+          <label>SHIELD</label><i><u id="shieldFill"></u></i><b id="shieldVal">100</b>
+        </div>
+        <div class="statbar health">
+          <label>HEALTH</label><i><u id="healthFill"></u></i><b id="healthVal">100</b>
+        </div>
+      </div>
+      <div class="bottom-mid">
+        <div id="buildInfo" class="hidden">
+          <span id="buildType">WALL</span><i id="buildMat">WOOD</i
+          ><b>WHEEL TYPE · R ROTATE · 1/2/3 MATERIAL</b>
+        </div>
+        <div id="hotbar"></div>
+      </div>
+      <div class="bottom-right">
+        <div id="ammo"><b>∞</b><span>PICKAXE</span></div>
+        <div class="materials">
+          <span class="wood">▰ <b id="wood">150</b></span
+          ><span class="stone">◆ <b id="stone">50</b></span
+          ><span class="metal">⬢ <b id="metal">0</b></span>
+        </div>
+      </div>
+    </div>
+    <div id="pause" class="screen overlay hidden">
+      <div class="panel">
+        <div class="eyebrow">MATCH PAUSED</div>
+        <h2>TAKE A BREATHER</h2>
+        <button id="resumeBtn" class="primary">RESUME</button
+        ><button id="pauseSettings" class="ghost">SETTINGS</button
+        ><button id="quitBtn" class="danger">LEAVE MATCH</button>
+      </div>
+    </div>
+    <div id="settings" class="screen overlay hidden">
+      <div class="panel">
+        <div class="eyebrow">OPTIONS</div>
+        <h2>SETTINGS</h2>
+        <label class="range"
+          >MOUSE SENSITIVITY <output id="sensOut">50%</output
+          ><input id="sensitivity" type="range" min="10" max="100" value="50" /></label
+        ><label class="range"
+          >MASTER VOLUME <output id="volOut">65%</output
+          ><input id="volume" type="range" min="0" max="100" value="65" /></label
+        ><button id="settingsBack" class="primary">APPLY & BACK</button>
+      </div>
+    </div>
+    <div id="end" class="screen overlay hidden">
+      <div class="panel end-panel">
+        <div id="endEyebrow" class="eyebrow">ELIMINATED</div>
+        <h2 id="endTitle">YOU PLACED #12</h2>
+        <div class="endstats">
+          <span>ELIMINATIONS <b id="endKills">0</b></span
+          ><span>SURVIVED <b id="survived">00:00</b></span>
+        </div>
+        <button id="restartBtn" class="primary">PLAY AGAIN</button
+        ><button id="spectateBtn" class="ghost">SPECTATE</button>
+      </div>
+    </div>
+    <div id="toast"></div>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script src="game.js"></script>
+  </body>
+</html>
