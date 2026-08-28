@@ -6,7 +6,7 @@
       name="viewport"
       content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"
     />
-    <title>Skyfall Royale</title>
+    <title>Skyfall Royale — Ultimate FPS / TPS Battle Royale & Arenas</title>
     <link
       href="https://api.fontshare.com/v2/css?f[]=clash-display@500,600,700&f[]=satoshi@400,500,700&display=swap"
       rel="stylesheet"
@@ -19,14 +19,14 @@
     <!-- LOADING SCREEN -->
     <div id="loading" class="screen">
       <div class="load-mark">
-        <svg viewBox="0 0 64 64" aria-label="Skyfall logo">
+        <svg viewBox="0 0 64 64">
           <path d="M32 3 58 18v28L32 61 6 46V18Z" />
           <path d="m18 21 14 28 14-28-14 8Z" />
         </svg>
       </div>
-      <h2>GENERATING THE ISLAND</h2>
+      <h2>SKYFALL ROYALE</h2>
       <div class="loader"><i></i></div>
-      <p id="loadText">Assembling terrain and arming combatants…</p>
+      <p id="loadText">Loading 3D Engine & Assets...</p>
     </div>
 
     <!-- MAIN MENU -->
@@ -39,29 +39,52 @@
         </svg>
         <div><span>SKYFALL</span><b>ROYALE</b></div>
       </div>
+
       <div class="menu-card">
-        <div class="eyebrow">COMPETITIVE BATTLE ROYALE</div>
-        <h1>DROP IN.<br /><em>OWN THE STORM.</em></h1>
-        <p>FPS & TPS Battle Royale with tactical building, smooth gunplay, and smart bot lobbies.</p>
-        <button id="playBtn" class="primary">PLAY SOLO <span>→</span></button>
-        <button id="settingsBtn" class="ghost">SETTINGS</button>
+        <div class="eyebrow">TACTICAL FPS & TPS COMBAT</div>
+        <h1>DROP IN.<br /><em>OWN THE ARENA.</em></h1>
+        <p>Dynamic movement sliding, shop upgrades, custom crosshairs, and multiple competitive modes.</p>
+
+        <!-- GAME MODE SELECTOR -->
+        <div class="mode-select-box">
+          <label>SELECT GAME MODE</label>
+          <div class="mode-grid">
+            <button class="mode-btn active" data-mode="br">🏆 BATTLE ROYALE<small>25 Players · Storm</small></button>
+            <button class="mode-btn" data-mode="ffa">💀 DEATHMATCH FFA<small>Fast 20-Kill Arena</small></button>
+            <button class="mode-btn" data-mode="duel">⚔️ 1v1 DUEL<small>Aim & Build Showdown</small></button>
+            <button class="mode-btn" data-mode="squad">👥 3v3 SQUADS<small>Team Deathmatch</small></button>
+            <button class="mode-btn" data-mode="sandbox">♾️ UNLIMITED / PRACTICE<small>Target Range & Dummies</small></button>
+          </div>
+        </div>
+
+        <div class="menu-actions">
+          <button id="playBtn" class="primary">START MATCH <span>→</span></button>
+          <div class="dual-btn">
+            <button id="menuShopBtn" class="gold-btn">🛒 ARMORY & SHOP</button>
+            <button id="settingsBtn" class="ghost">SETTINGS</button>
+          </div>
+        </div>
+
         <div class="menu-foot">
-          <span>25 COMBATANTS</span>
-          <span>FPS / TPS MODE [V]</span>
-          <span>FULL MOBILE SUPPORT</span>
+          <span>GOLD: <b id="menuGold">💰 500</b></span>
+          <span>LEVEL: <b id="menuLevel">LV. 1</b></span>
+          <span>DEV CODE: <b>AHbest</b></span>
         </div>
       </div>
     </div>
 
     <!-- IN-GAME HUD -->
     <div id="hud" class="hidden">
-      <div id="debug">FPS: --<br />Draw: --</div>
+      <div id="debug">FPS: --<br />Mode: BR</div>
       <div id="compass">N&nbsp;&nbsp;&nbsp;NE&nbsp;&nbsp;&nbsp;E</div>
       <div id="poi">TILTED TOWERS</div>
 
+      <!-- GOLD & LEVEL DISPLAY -->
+      <div id="goldHud">💰 <span id="goldVal">500</span></div>
+
       <div class="top-right">
-        <canvas id="minimap" width="190" height="190"></canvas>
-        <div id="stormBox"><b>STORM EYE</b><span id="stormTimer">01:00</span></div>
+        <canvas id="minimap" width="180" height="180"></canvas>
+        <div id="stormBox"><b>ZONE / TIMER</b><span id="stormTimer">01:00</span></div>
         <div class="match-stat">
           <span>◉ <b id="remaining">25</b></span>
           <span>✦ <b id="kills">0</b></span>
@@ -73,10 +96,13 @@
       <div id="hitmarker">×</div>
       <div id="crosshair"><i></i><i></i><i></i><i></i><span id="dot"></span></div>
 
+      <!-- SLIDE / SPRINT INDICATOR -->
+      <div id="slideIndicator" class="hidden">⚡ SLIDING</div>
+
       <!-- CAMERA VIEW BADGE -->
       <div id="povBadge">TPS [V]</div>
 
-      <!-- BOTTOM LEFT: HEALTH / SHIELD -->
+      <!-- BOTTOM LEFT: HEALTH & SHIELD -->
       <div class="bottom-left">
         <div class="identity">
           <div class="avatar">SF</div>
@@ -90,11 +116,11 @@
         </div>
       </div>
 
-      <!-- BOTTOM MID: BUILD READOUT & HOTBAR -->
+      <!-- BOTTOM MID: BUILD READOUT & 5-SLOT LOADOUT -->
       <div class="bottom-mid">
         <div id="buildInfo" class="hidden">
           <span id="buildType">WALL</span><i id="buildMat">WOOD</i>
-          <b>WHEEL / TAP TYPE · R ROTATE · 1/2/3 MAT</b>
+          <b>TAP TYPE · R ROTATE · 1/2/3 MAT</b>
         </div>
         <div id="hotbar"></div>
       </div>
@@ -109,24 +135,26 @@
         </div>
       </div>
 
-      <!-- FLOATING DAMAGE NUMBERS CONTAINER -->
+      <!-- FLOATING DAMAGE OVERLAY -->
       <div id="damageOverlay"></div>
 
-      <!-- MOBILE TOUCH CONTROLS (AUTO-ENABLED ON TOUCH SCREENS) -->
+      <!-- MOBILE TOUCH CONTROLS -->
       <div id="mobileControls" class="touch-only">
-        <!-- VIRTUAL JOYSTICK (LEFT) -->
+        <!-- VIRTUAL ANALOG JOYSTICK -->
         <div id="joystickZone">
           <div id="joystickBase">
             <div id="joystickThumb"></div>
           </div>
         </div>
 
-        <!-- TOUCH ACTION BUTTONS (RIGHT) -->
+        <!-- MOBILE ACTION BUTTONS -->
         <div class="touch-actions">
+          <button id="btnShop" class="t-btn small gold">🛒<br />SHOP</button>
           <button id="btnPov" class="t-btn small">👁️<br />POV</button>
           <button id="btnBuild" class="t-btn mode-btn">🔨<br />BUILD</button>
           <button id="btnLoot" class="t-btn medium">📦<br />LOOT</button>
           <button id="btnReload" class="t-btn medium">🔄<br />RELOAD</button>
+          <button id="btnSlide" class="t-btn medium slide-btn">🛹<br />SLIDE</button>
           <button id="btnAim" class="t-btn medium">🎯<br />AIM</button>
           <button id="btnJump" class="t-btn large">🦘<br />JUMP</button>
           <button id="btnFire" class="t-btn trigger">🔥<br />FIRE</button>
@@ -134,35 +162,105 @@
       </div>
     </div>
 
-    <!-- PAUSE MENU -->
+    <!-- SHOP & ARMORY MODAL (RIVALS STYLE) -->
+    <div id="shopModal" class="screen overlay hidden">
+      <div class="panel shop-panel">
+        <div class="shop-header">
+          <div>
+            <div class="eyebrow">ARMORY & UPGRADES</div>
+            <h2>TACTICAL SHOP</h2>
+          </div>
+          <div class="shop-gold">💰 <span id="shopGoldDisplay">500</span></div>
+        </div>
+
+        <div class="shop-tabs">
+          <button class="tab-btn active" data-tab="weapons">WEAPONS</button>
+          <button class="tab-btn" data-tab="upgrades">UPGRADES</button>
+        </div>
+
+        <div id="shopWeaponsTab" class="shop-content">
+          <div class="shop-grid" id="weaponShopList"></div>
+        </div>
+
+        <div id="shopUpgradesTab" class="shop-content hidden">
+          <div class="shop-grid" id="upgradeShopList"></div>
+        </div>
+
+        <button id="closeShopBtn" class="primary">CLOSE SHOP</button>
+      </div>
+    </div>
+
+    <!-- PAUSE MENU WITH CHEAT INPUT -->
     <div id="pause" class="screen overlay hidden">
       <div class="panel">
         <div class="eyebrow">MATCH PAUSED</div>
         <h2>OPTIONS & PAUSE</h2>
         <button id="resumeBtn" class="primary">RESUME</button>
-        <button id="toggleFpsBtn" class="ghost">TOGGLE POV (FPS / TPS)</button>
-        <button id="pauseSettings" class="ghost">SETTINGS</button>
+        <button id="hudShopBtn" class="gold-btn">OPEN ARMORY / SHOP (B)</button>
+        <button id="toggleFpsBtn" class="ghost">TOGGLE POV: FPS / TPS (V)</button>
+        <button id="pauseSettings" class="ghost">SETTINGS & CROSSHAIR</button>
+        
+        <!-- CHEAT CODE SYSTEM -->
+        <div class="cheat-box">
+          <label>SECRET CHEAT CODE</label>
+          <div class="cheat-input-row">
+            <input type="text" id="cheatInput" placeholder="Enter code (e.g. AHbest)" />
+            <button id="applyCheatBtn" class="primary">APPLY</button>
+          </div>
+        </div>
+
         <button id="quitBtn" class="danger">LEAVE MATCH</button>
       </div>
     </div>
 
-    <!-- SETTINGS MENU -->
+    <!-- SETTINGS & CROSSHAIR CUSTOMIZER -->
     <div id="settings" class="screen overlay hidden">
-      <div class="panel">
-        <div class="eyebrow">OPTIONS</div>
-        <h2>SETTINGS</h2>
-        <label class="range">
-          LOOK SENSITIVITY <output id="sensOut">50%</output>
-          <input id="sensitivity" type="range" min="10" max="100" value="50" />
-        </label>
-        <label class="range">
-          MASTER VOLUME <output id="volOut">65%</output>
-          <input id="volume" type="range" min="0" max="100" value="65" />
-        </label>
-        <label class="range">
-          FOV (FIELD OF VIEW) <output id="fovOut">75</output>
-          <input id="fovSlider" type="range" min="60" max="105" value="75" />
-        </label>
+      <div class="panel settings-panel">
+        <div class="eyebrow">CONFIGURATION</div>
+        <h2>SETTINGS & CROSSHAIR</h2>
+
+        <div class="settings-scroll">
+          <label class="range">
+            LOOK SENSITIVITY <output id="sensOut">50%</output>
+            <input id="sensitivity" type="range" min="10" max="100" value="50" />
+          </label>
+          <label class="range">
+            MASTER VOLUME <output id="volOut">65%</output>
+            <input id="volume" type="range" min="0" max="100" value="65" />
+          </label>
+          <label class="range">
+            FIELD OF VIEW (FOV) <output id="fovOut">75</output>
+            <input id="fovSlider" type="range" min="60" max="105" value="75" />
+          </label>
+
+          <!-- CROSSHAIR CUSTOMIZER -->
+          <div class="setting-group">
+            <label>CROSSHAIR STYLE</label>
+            <div class="chip-row" id="crosshairStyles">
+              <button class="chip active" data-val="cross">Cross</button>
+              <button class="chip" data-val="dot">Dot</button>
+              <button class="chip" data-val="circle">Circle Dot</button>
+              <button class="chip" data-val="wide">Wide</button>
+            </div>
+          </div>
+
+          <div class="setting-group">
+            <label>CROSSHAIR COLOR</label>
+            <div class="chip-row" id="crosshairColors">
+              <button class="chip active" data-color="#38dfff" style="background:#38dfff; color:#111">Cyan</button>
+              <button class="chip" data-color="#c8ff32" style="background:#c8ff32; color:#111">Lime</button>
+              <button class="chip" data-color="#ff4d68" style="background:#ff4d68; color:#fff">Red</button>
+              <button class="chip" data-color="#ffca3a" style="background:#ffca3a; color:#111">Gold</button>
+              <button class="chip" data-color="#ffffff" style="background:#ffffff; color:#111">White</button>
+            </div>
+          </div>
+
+          <label class="range">
+            CROSSHAIR SIZE <output id="crossSizeOut">32px</output>
+            <input id="crossSizeSlider" type="range" min="20" max="54" value="32" />
+          </label>
+        </div>
+
         <button id="settingsBack" class="primary">APPLY & BACK</button>
       </div>
     </div>
@@ -170,10 +268,11 @@
     <!-- GAME OVER / VICTORY SCREEN -->
     <div id="end" class="screen overlay hidden">
       <div class="panel end-panel">
-        <div id="endEyebrow" class="eyebrow">ELIMINATED</div>
-        <h2 id="endTitle">YOU PLACED #12</h2>
+        <div id="endEyebrow" class="eyebrow">VICTORY ROYALE</div>
+        <h2 id="endTitle">YOU WON THE MATCH</h2>
         <div class="endstats">
           <span>ELIMINATIONS <b id="endKills">0</b></span>
+          <span>GOLD EARNED <b id="endGold">+350</b></span>
           <span>SURVIVED <b id="survived">00:00</b></span>
         </div>
         <button id="restartBtn" class="primary">PLAY AGAIN</button>
@@ -182,7 +281,7 @@
 
     <div id="toast"></div>
 
-    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="game.js"></script>
   </body>
 </html>
