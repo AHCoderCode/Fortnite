@@ -2269,4 +2269,995 @@
                     if (!l) return;
                     if (WEAPONS_DB[l.type]) {
                         let def = WEAPONS_DB[l.type];
-                        let targetSlot = { primary: 0, secondary: 1, melee
+                        let targetSlot = { primary: 0, secondary: 1, melee: 2, utility: 3, heal: 4 }[def.slot] || 0;
+                        this.inventory[targetSlot] = Object.assign({ owned: true, clip: def.mag || 0 }, def);
+                        this.slot = targetSlot;
+                        toast("EQUIPPED " + def.name);
+                    } else if (l.type === "chest") {
+                        for (let i = 0; i < 3; i++) spawnLoot(l.mesh.position.x + rnd(-3, 3), l.mesh.position.z + rnd(-3,
+                            3));
+                        this.materials.wood = Math.min(999, this.materials.wood + 80);
+                        PlayerData.gold += 50;
+                        saveGame();
+                    }
+                    l.alive = false;
+                    l.mesh.removeFromParent();
+                    W.audio.play("pickup");
+                    updateHotbar();
+                }
+            }
+
+            // ---- DAMAGE & KILLS ----
+            function damageEntity(e, n, who, isHeadshot = false) {
+                if (!e.alive) return;
+                let shieldHit = false;
+                if (e instanceof Bot) {
+                    let s = Math.min(e.shield, n);
+                    e.shield -= s;
+                    e.hp -= n - s;
+                    shieldHit = s > 0;
+                    e.lastHit = W.time;
+                    popDamageNumber(e.mesh.position.clone().add(new THREE.Vector3(0, 3.5, 0)), n, isHeadshot, shieldHit);
+                } else {
+                    e.hp -= n;
+                }
+                if (e.hp <= 0) {
+                    e.alive = false;
+                    if (e.parts) e.parts.forEach((x) => x.removeFromParent());
+                    else if (e.mesh) e.mesh.removeFromParent();
+
+                    if (e.material) {
+                        player.materials[e.material] = Math.min(999, player.materials[e.material] + e.amount);
+                        toast("+" + e.amount + " " + e.material.toUpperCase());
+                    }
+                    if (e instanceof Bot) {
+                        W.remaining--;
+                        if (who === "YOU") {
+                            W.kills++;
+                            let goldReward = isHeadshot ? 150 : 100;
+                            PlayerData.gold += goldReward;
+                            PlayerData.kills++;
+                            PlayerData.xp += 80;
+                            if (PlayerData.xp >= PlayerData.level * 200) { PlayerData.level++;
+                                toast("🎉 LEVEL UP: " + PlayerData.level); }
+                            saveGame();
+                            if (PlayerData.upgrades.vampirism > 0) {
+                                let healAmount = PlayerData.upgrades.vampirism * 15;
+                                player.health = Math.min(100, player.health + healAmount);
+                                toast("🩸 VAMPIRISM: +" + healAmount + " HP");
+                            }
+                            W.audio.play("elim");
+                            feed("YOU eliminated " + e.name + " (+" + goldReward + " 💰)");
+                        } else {
+                            feed(who + " eliminated " + e.name);
+                        }
+                        spawnLoot(e.mesh.position.x, e.mesh.position.z);
+                        if (W.mode === "ffa" && who === "YOU" && W.kills >= 20) endGame(true);
+                        else if (W.remaining <= 1 && player.health > 0) endGame(true);
+                    }
+                }
+            }
+
+            // ---- BOT AI ----
+            class Bot {
+                constructor(i) {
+                    this.name = ["Rival_Fox", "Cyber_Nova", "Apex_Viper", "Ghost_99", "Titan_Blade", "Specter_X",
+                        "Havoc_01", "Blaze_Rift"
+                    ][i % 8] + "#" + (i + 1);
+                    let botColors = [0xef476f, 0xff9f43, 0xa55eea, 0x20bf6b, 0xeb3b5a, 0xfa8231];
+                    this.mesh = makeStylizedHumanoid(this, botColors[i % botColors.length]);
+                    let a = (i / CFG.bots) * TAU + rnd(-0.2, 0.2);
+                    let r = rnd(60, 520);
+                    let x = Math.cos(a) * r;
+                    let z = Math.sin(a) * r;
+                    this.mesh.position.set(x, height(x, z), z);
+                    this.hp = 100;
+                    this.shield = 50;
+                    this.state = "Patrol";
+                    this.alive = true;
+                    this.target = null;
+                    this.goal = new THREE.Vector3(x + rnd(-40, 40), 0, z + rnd(-40, 40));
+                    this.cool = rnd(0.5, 1.8);
+                    this.think = rnd(0.1, 0.4);
+                    this.lastHit = -99;
+                    this.speed = rnd(14, 20);
+                    this.mats = 80;
+                    this.strafe = Math.random() < 0.5 ? 1 : -1;
+                    this.walkCycle = 0;
+                }
+
+                damage(n, from) { damageEntity(this, n, from); }
+
+                thinkAI() {
+                    if (!this.alive) return;
+                    let s = W.storm;
+                    if (W.mode === "br") {
+                        let dStorm = Math.hypot(this.mesh.position.x - s.cx, this.mesh.position.z - s.cz);
+                        if (dStorm > s.radius - 30) { this.state = "Flee";
+                            this.goal.set(s.cx, 0, s.cz); return; }
+                    }
+
+                    let candidates = W.bots.filter((x) => x !== this && x.alive);
+                    if (player.health > 0) candidates.push(player);
+
+                    let best = null,
+                        bd = 180;
+                    for (const x of candidates) {
+                        let d = x.mesh.position.distanceTo(this.mesh.position);
+                        if (d < bd) { best = x;
+                            bd = d; }
+                    }
+
+                    if (best) {
+                        this.target = best;
+                        this.state = bd < 80 ? "Attack" : "Chase";
+                    } else {
+                        this.state = "Patrol";
+                        if (this.goal.distanceTo(this.mesh.position) < 10) {
+                            this.goal.set(rnd(-500, 500), 0, rnd(-500, 500));
+                        }
+                    }
+                }
+
+                update(dt) {
+                    if (!this.alive) return;
+                    this.cool -= dt;
+                    this.think -= dt;
+                    if (this.think <= 0) { this.think = rnd(0.25, 0.5);
+                        this.thinkAI(); }
+
+                    let targetPos = null;
+                    if (this.state === "Attack" && this.target && this.target.alive !== false) {
+                        targetPos = this.target.mesh.position;
+                        this.shoot();
+                    } else if (this.state === "Chase" && this.target) targetPos = this.target.mesh.position;
+                    else targetPos = this.goal;
+
+                    if (targetPos) {
+                        let d = targetPos.clone().sub(this.mesh.position);
+                        d.y = 0;
+                        let dist = d.length();
+                        if (dist > 3) {
+                            d.normalize();
+                            let move = new THREE.Vector3();
+                            if (this.state === "Attack") {
+                                if (dist > 45) move.copy(d);
+                                else if (dist < 18) move.copy(d).negate();
+                                move.add(new THREE.Vector3(-d.z, 0, d.x).multiplyScalar(this.strafe * 0.75));
+                                if (Math.random() < 0.02) this.strafe *= -1;
+                            } else move.copy(d);
+                            if (move.lengthSq() > 0.001) {
+                                move.normalize();
+                                this.mesh.position.addScaledVector(move, this.speed * (this.state === "Attack" ? 0.7 :
+                                    1) * dt);
+                                this.walkCycle += dt * 10;
+                            }
+                            this.mesh.rotation.y = Math.atan2(d.x, d.z);
+                            this.mesh.position.y = height(this.mesh.position.x, this.mesh.position.z);
+                        }
+                    }
+                    updateHealthBarSprite(this.mesh.hpSprite, this.hp, 100, this.shield, 100, this.name);
+                }
+
+                shoot() {
+                    if (this.cool > 0 || !this.target) return;
+                    this.cool = rnd(0.8, 1.5);
+                    let dist = this.mesh.position.distanceTo(this.target.mesh.position);
+                    let chance = clamp(0.5 - dist / 500, 0.1, 0.6);
+                    if (this.mesh.position.distanceTo(player.mesh.position) < 200) W.audio.noise(0.06, 0.03, 900);
+                    let fromPos = this.mesh.position.clone().add(new THREE.Vector3(0, 2.5, 0));
+                    let toPos = this.target.mesh.position.clone().add(new THREE.Vector3(0, 2.5, 0));
+                    particles.tracer(fromPos, toPos);
+                    if (Math.random() < chance) {
+                        let dmg = rnd(8, 16);
+                        this.target.damage(dmg, this.name);
+                    }
+                }
+            }
+
+            // ---- BUILDING ----
+            const BSZ = 9;
+
+            function makeStructure(type, p, rot = 0, owned = true) {
+                let mat = MAT.wall;
+                let m;
+                if (type === "wall") m = geo("BoxGeometry", [BSZ, 8, 0.7], mat, [p.x, height(p.x, p.z) + 4, p.z], [0, rot,
+                    0]);
+                else if (type === "floor") m = geo("BoxGeometry", [BSZ, 0.6, BSZ], mat, [p.x, height(p.x, p.z) + 0.4, p.z],
+                    [0, rot, 0]);
+                else m = geo("BoxGeometry", [BSZ, 0.55, BSZ], mat, [p.x, height(p.x, p.z) + 3.1, p.z], [-0.52, rot, 0]);
+
+                let e = { type: "structure", subtype: type, mesh: m, hp: 200, alive: true };
+                m.userData = { owner: e, type: "structure" };
+                W.structures.push(e);
+                addCollider(m, BSZ, type === "wall" ? 1 : BSZ, 8, "structure", e);
+                return e;
+            }
+
+            function initPreview() {
+                preview = new THREE.Mesh(
+                    new THREE.BoxGeometry(BSZ, 8, 0.7),
+                    new THREE.MeshBasicMaterial({ color: 0x55ffb0, transparent: true, opacity: 0.35, depthWrite: false })
+                );
+                preview.visible = false;
+                scene.add(preview);
+            }
+
+            function updatePreview() {
+                if (!W.build) return;
+                let dir = new THREE.Vector3();
+                camera.getWorldDirection(dir);
+                dir.y = 0;
+                dir.normalize();
+                let p = player.mesh.position.clone().add(dir.multiplyScalar(8));
+                p.x = Math.round(p.x / BSZ) * BSZ;
+                p.z = Math.round(p.z / BSZ) * BSZ;
+                let t = ["wall", "floor", "ramp"][W.buildType];
+                preview.geometry.dispose();
+                preview.geometry = t === "wall" ? new THREE.BoxGeometry(BSZ, 8, 0.7) : t === "floor" ? new THREE
+                    .BoxGeometry(BSZ, 0.6, BSZ) : new THREE.BoxGeometry(BSZ, 0.55, BSZ);
+                preview.position.set(p.x, height(p.x, p.z) + (t === "wall" ? 4 : t === "ramp" ? 3.1 : 0.4), p.z);
+                preview.rotation.set(t === "ramp" ? -0.52 : 0, (W.buildRot * Math.PI) / 2, 0);
+                preview.visible = true;
+                W.previewPos = p;
+            }
+
+            function placeBuild() {
+                if (!W.previewPos) updatePreview();
+                if (!W.previewPos) return;
+                let mat = W.buildMat,
+                    cost = 10;
+                if (player.materials[mat] < cost) { toast("NOT ENOUGH " + mat.toUpperCase()); return; }
+                player.materials[mat] -= cost;
+                makeStructure(["wall", "floor", "ramp"][W.buildType], W.previewPos, (W.buildRot * Math.PI) / 2, true);
+                W.audio.play("build");
+                particles.burst(preview.position, 0xd18b52, 8);
+            }
+
+            // ---- SHOP ----
+            function populateShop() {
+                let weaponList = $("#weaponShopList"),
+                    upgradeList = $("#upgradeShopList");
+                if (!weaponList || !upgradeList) return;
+                weaponList.innerHTML = "";
+                upgradeList.innerHTML = "";
+
+                for (const [key, w] of Object.entries(WEAPONS_DB)) {
+                    let isUnlocked = PlayerData.unlockedWeapons.includes(key);
+                    let isEquipped = Object.values(PlayerData.loadout).includes(key);
+                    let card = document.createElement("div");
+                    card.className = "shop-card";
+                    card.innerHTML = `
+                <div><span class="tier">${w.slot.toUpperCase()} TIER</span>
+                <h4>${w.icon} ${w.name}</h4>
+                <p>${w.desc}</p>
+                <small style="color:var(--lime)">DMG: ${w.dmg || w.heal || w.shield} · RATE: ${w.rate || 1}s</small></div>
+                <button class="${isEquipped ? "ghost" : isUnlocked ? "primary" : "gold-btn"}" data-weapon="${key}">
+                  ${isEquipped ? "EQUIPPED" : isUnlocked ? "EQUIP" : "BUY 💰 " + w.price}
+                </button>
+              `;
+                    card.querySelector("button").onclick = () => handleWeaponBuyEquip(key);
+                    weaponList.appendChild(card);
+                }
+
+                for (const [key, u] of Object.entries(UPGRADES_DB)) {
+                    let currentLvl = PlayerData.upgrades[key] || 0;
+                    let maxLvl = u.cost.length;
+                    let nextCost = currentLvl < maxLvl ? u.cost[currentLvl] : null;
+                    let card = document.createElement("div");
+                    card.className = "shop-card";
+                    card.innerHTML = `
+                <div><span class="tier">LEVEL ${currentLvl} / ${maxLvl}</span>
+                <h4>${u.name}</h4>
+                <p>${u.desc}</p></div>
+                <button class="${currentLvl >= maxLvl ? "ghost" : "gold-btn"}" data-upgrade="${key}">
+                  ${currentLvl >= maxLvl ? "MAXED OUT" : "UPGRADE 💰 " + nextCost}
+                </button>
+              `;
+                    card.querySelector("button").onclick = () => handleUpgradeBuy(key);
+                    upgradeList.appendChild(card);
+                }
+            }
+
+            function handleWeaponBuyEquip(key) {
+                let w = WEAPONS_DB[key];
+                if (!w) return;
+                if (!PlayerData.unlockedWeapons.includes(key)) {
+                    if (PlayerData.gold >= w.price) {
+                        PlayerData.gold -= w.price;
+                        PlayerData.unlockedWeapons.push(key);
+                        PlayerData.loadout[w.slot] = key;
+                        W.audio.play("buy");
+                        toast("UNLOCKED & EQUIPPED " + w.name);
+                    } else { toast("NOT ENOUGH GOLD!"); }
+                } else {
+                    PlayerData.loadout[w.slot] = key;
+                    toast("EQUIPPED " + w.name);
+                }
+                if (player) {
+                    let slotIdx = { primary: 0, secondary: 1, melee: 2, utility: 3, heal: 4 }[w.slot];
+                    if (slotIdx !== undefined) {
+                        player.inventory[slotIdx] = Object.assign({ owned: true, clip: w.mag || 0 }, w);
+                    }
+                }
+                saveGame();
+                populateShop();
+                updateHotbar();
+            }
+
+            function handleUpgradeBuy(key) {
+                let u = UPGRADES_DB[key];
+                let currentLvl = PlayerData.upgrades[key] || 0;
+                if (currentLvl >= u.cost.length) return;
+                let cost = u.cost[currentLvl];
+                if (PlayerData.gold >= cost) {
+                    PlayerData.gold -= cost;
+                    PlayerData.upgrades[key] = currentLvl + 1;
+                    W.audio.play("buy");
+                    toast("UPGRADED " + u.name + " TO LV. " + (currentLvl + 1));
+                    saveGame();
+                    populateShop();
+                } else { toast("NOT ENOUGH GOLD!"); }
+            }
+
+            function openShop() { populateShop();
+                $("#shopModal").classList.remove("hidden"); }
+
+            function closeShop() { $("#shopModal").classList.add("hidden"); }
+
+            // ---- CHEATS ----
+            function applyCheatCode(code) {
+                if (!code) return;
+                let clean = code.trim();
+                if (clean === "AHbest") {
+                    PlayerData.gold += 99999;
+                    PlayerData.unlockedWeapons = Object.keys(WEAPONS_DB);
+                    for (const k in UPGRADES_DB) PlayerData.upgrades[k] = UPGRADES_DB[k].cost.length;
+                    PlayerData.godMode = !PlayerData.godMode;
+                    saveGame();
+                    W.audio.play("cheat");
+                    particles.burst(player ? player.mesh.position : new THREE.Vector3(0, 5, 0), 0xffca3a, 35);
+                    toast("👑 CHEAT ACTIVATED: AHbest! +99k GOLD, ALL WEAPONS & GOD MODE: " + (PlayerData.godMode ? "ON" :
+                        "OFF"));
+                    populateShop();
+                    updateGoldUI();
+                } else { toast("INVALID CHEAT CODE!"); }
+            }
+
+            // ---- INIT ----
+            function init() {
+                try {
+                    loadSave();
+
+                    MAT = {
+                        grass: new THREE.MeshStandardMaterial({ color: 0x3f8f50, roughness: 0.95, vertexColors: true }),
+                        wood: new THREE.MeshStandardMaterial({ color: 0x8b532d, roughness: 0.85 }),
+                        leaf: new THREE.MeshStandardMaterial({ color: 0x247444, roughness: 0.9, flatShading: true }),
+                        stone: new THREE.MeshStandardMaterial({ color: 0x6e7d87, roughness: 0.95, flatShading: true }),
+                        metal: new THREE.MeshStandardMaterial({ color: 0x638997, metalness: 0.6, roughness: 0.35 }),
+                        wall: new THREE.MeshStandardMaterial({ color: 0xc48655, roughness: 0.8 }),
+                        roof: new THREE.MeshStandardMaterial({ color: 0x2d4363, roughness: 0.9 }),
+                        tracer: new THREE.MeshBasicMaterial({ color: 0xfff275, transparent: true, opacity: 0.9 })
+                    };
+
+                    raycaster = new THREE.Raycaster();
+                    screenVec = new THREE.Vector3();
+
+                    scene = new THREE.Scene();
+                    scene.background = new THREE.Color(0x78b7df);
+                    scene.fog = new THREE.Fog(0x78b7df, 240, 1050);
+
+                    camera = new THREE.PerspectiveCamera(PlayerData.settings.fov, innerWidth / innerHeight, 0.1, 1600);
+                    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+                    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+                    renderer.setSize(innerWidth, innerHeight);
+                    renderer.shadowMap.enabled = true;
+                    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                    $("#game").appendChild(renderer.domElement);
+
+                    scene.add(new THREE.HemisphereLight(0xd5ecff, 0x49683b, 2.2));
+                    let sun = new THREE.DirectionalLight(0xfff0cf, 3);
+                    sun.position.set(-220, 320, 180);
+                    sun.castShadow = true;
+                    scene.add(sun);
+
+                    makeTerrain();
+                    worldObjects();
+
+                    for (let i = 0; i < 40; i++) {
+                        let a = rnd(0, TAU),
+                            r = rnd(40, 750);
+                        spawnLoot(Math.cos(a) * r, Math.sin(a) * r);
+                    }
+
+                    player = new Player();
+
+                    let botCount = W.mode === "duel" ? 1 : W.mode === "squad" ? 5 : W.mode === "sandbox" ? 4 : CFG.bots;
+                    for (let i = 0; i < botCount; i++) W.bots.push(new Bot(i));
+
+                    W.audio = new AudioSys();
+                    particles = new ParticlePool();
+
+                    initStorm();
+                    initPreview();
+                    bindInput();
+                    bindMobileJoystick();
+                    applyCrosshairCustomization();
+
+                    clock = new THREE.Clock();
+                    updateHotbar();
+
+                    // ---- SHOW MENU after a short delay, BUT also ensure it shows even if renderer is slow ----
+                    let menuShown = false;
+                    const showMenu = function() {
+                        if (menuShown) return;
+                        menuShown = true;
+                        var loading = document.getElementById('loading');
+                        var menu = document.getElementById('menu');
+                        if (loading) loading.classList.add('hidden');
+                        if (menu) menu.classList.remove('hidden');
+                        W.phase = "menu";
+                    };
+
+                    // Show menu after 350ms (fast path)
+                    setTimeout(showMenu, 350);
+
+                    // Fallback: show menu after 2s no matter what (ensures it appears even if Three.js is slow)
+                    setTimeout(showMenu, 2000);
+
+                    loop();
+
+                } catch (e) {
+                    console.error(e);
+                    var loadText = document.getElementById('loadText');
+                    if (loadText) loadText.textContent = "Error: " + e.message;
+                    // Still try to show menu after error
+                    setTimeout(function() {
+                        var loading = document.getElementById('loading');
+                        var menu = document.getElementById('menu');
+                        if (loading) loading.classList.add('hidden');
+                        if (menu) menu.classList.remove('hidden');
+                        W.phase = "menu";
+                    }, 800);
+                }
+            }
+
+            // ---- STORM ----
+            function initStorm() {
+                let mat = new THREE.MeshBasicMaterial({
+                    color: 0x7a50e8,
+                    transparent: true,
+                    opacity: 0.2,
+                    side: THREE.DoubleSide,
+                    depthWrite: false
+                });
+                stormWall = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 180, 96, 1, true), mat);
+                stormWall.position.y = 60;
+                scene.add(stormWall);
+            }
+
+            function updateStorm(dt) {
+                let s = W.storm;
+                s.timer -= dt;
+                if (s.timer <= 0 && s.phase < 5) {
+                    s.phase++;
+                    s.target = [760, 540, 360, 200, 60][s.phase - 1];
+                    s.timer = [55, 50, 45, 40, 35][s.phase - 1];
+                    s.dps = [1, 2, 4, 7, 12][s.phase - 1];
+                    toast("STORM PHASE " + s.phase + " SHRINKING!");
+                }
+                if (s.radius > s.target) s.radius += (s.target - s.radius) * dt * 0.05;
+                stormWall.scale.set(s.radius, 1, s.radius);
+            }
+
+            // ---- INPUT ----
+            let touchMovement = { active: false, x: 0, y: 0, sprint: false };
+            let touchAiming = false,
+                touchJumpTrigger = false,
+                touchSlideTrigger = false;
+
+            function togglePerspective() {
+                W.firstPerson = !W.firstPerson;
+                $("#viewModeLabel").textContent = W.firstPerson ? "FIRST PERSON" : "THIRD PERSON";
+                $("#povBadge").textContent = W.firstPerson ? "FPS [V]" : "TPS [V]";
+                toast(W.firstPerson ? "FIRST PERSON VIEW" : "THIRD PERSON VIEW");
+            }
+
+            function applyCrosshairCustomization() {
+                let c = PlayerData.settings;
+                let ch = $("#crosshair");
+                if (!ch) return;
+                ch.style.width = c.crossSize + "px";
+                ch.style.height = c.crossSize + "px";
+                $$("#crosshair i, #dot").forEach((el) => { el.style.background = c.crossColor; });
+                if (c.crossStyle === "dot") {
+                    $$("#crosshair i").forEach((el) => (el.style.display = "none"));
+                    $("#dot").style.display = "block";
+                } else {
+                    $$("#crosshair i").forEach((el) => (el.style.display = "block"));
+                    $("#dot").style.display = c.crossStyle === "circle" ? "block" : "none";
+                }
+            }
+
+            function bindInput() {
+                window.addEventListener("resize", () => {
+                    camera.aspect = innerWidth / innerHeight;
+                    camera.updateProjectionMatrix();
+                    renderer.setSize(innerWidth, innerHeight);
+                });
+
+                window.addEventListener("keydown", (e) => {
+                    W.keys[e.code] = true;
+                    if (!W.started) return;
+                    if (/^Digit[1-5]$/.test(e.code)) { let n = +e.code.slice(-1);
+                        player.slot = n - 1;
+                        updateHotbar(); }
+                    if (e.code === "KeyV") togglePerspective();
+                    if (e.code === "KeyB") openShop();
+                    if (e.code === "KeyE") player.pickup();
+                    if (e.code === "KeyQ") toggleBuild();
+                    if (e.code === "KeyR") { if (W.build) W.buildRot = (W.buildRot + 1) % 4;
+                        else player.reload(); }
+                    if (e.code === "Escape") togglePause();
+                });
+
+                window.addEventListener("keyup", (e) => (W.keys[e.code] = false));
+
+                renderer.domElement.addEventListener("mousedown", (e) => {
+                    if (!W.started || W.paused) return;
+                    W.audio.resume();
+                    if (document.pointerLockElement !== renderer.domElement && !isTouchDevice) {
+                        try { renderer.domElement.requestPointerLock?.(); } catch (_) {}
+                    }
+                    if (e.button === 0) { if (W.build) placeBuild();
+                        else player.attack(); }
+                });
+
+                renderer.domElement.addEventListener("contextmenu", (e) => e.preventDefault());
+
+                window.addEventListener("mousemove", (e) => {
+                    if (!W.started || W.paused) return;
+                    if (document.pointerLockElement === renderer.domElement || e.buttons) {
+                        let sens = 0.0006 + (PlayerData.settings.sensitivity / 100) * 0.0035;
+                        W.yaw -= e.movementX * sens;
+                        W.pitch = clamp(W.pitch - e.movementY * sens, -0.85, 0.65);
+                    }
+                });
+
+                $$(".mode-btn").forEach((btn) => {
+                    btn.onclick = () => {
+                        $$(".mode-btn").forEach((b) => b.classList.remove("active"));
+                        btn.classList.add("active");
+                        W.mode = btn.dataset.mode;
+                        PlayerData.selectedMode = W.mode;
+                    };
+                });
+
+                $("#playBtn").onclick = start;
+                $("#restartBtn").onclick = () => location.reload();
+                $("#resumeBtn").onclick = togglePause;
+                $("#toggleFpsBtn").onclick = () => { togglePerspective();
+                    togglePause(); };
+                $("#menuShopBtn").onclick = openShop;
+                $("#hudShopBtn").onclick = () => { togglePause();
+                    openShop(); };
+                $("#closeShopBtn").onclick = closeShop;
+                $("#quitBtn").onclick = () => location.reload();
+                $("#settingsBtn").onclick = () => showSettings("menu");
+                $("#pauseSettings").onclick = () => showSettings("pause");
+                $("#settingsBack").onclick = closeSettings;
+
+                $$(".tab-btn").forEach((tab) => {
+                    tab.onclick = () => {
+                        $$(".tab-btn").forEach((t) => t.classList.remove("active"));
+                        tab.classList.add("active");
+                        if (tab.dataset.tab === "weapons") {
+                            $("#shopWeaponsTab").classList.remove("hidden");
+                            $("#shopUpgradesTab").classList.add("hidden");
+                        } else {
+                            $("#shopWeaponsTab").classList.add("hidden");
+                            $("#shopUpgradesTab").classList.remove("hidden");
+                        }
+                    };
+                });
+
+                $("#applyCheatBtn").onclick = () => { applyCheatCode($("#cheatInput").value);
+                    $("#cheatInput").value = ""; };
+
+                $$("#crosshairStyles .chip").forEach((btn) => {
+                    btn.onclick = () => {
+                        $$("#crosshairStyles .chip").forEach((b) => b.classList.remove("active"));
+                        btn.classList.add("active");
+                        PlayerData.settings.crossStyle = btn.dataset.val;
+                        applyCrosshairCustomization();
+                        saveGame();
+                    };
+                });
+
+                $$("#crosshairColors .chip").forEach((btn) => {
+                    btn.onclick = () => {
+                        $$("#crosshairColors .chip").forEach((b) => b.classList.remove("active"));
+                        btn.classList.add("active");
+                        PlayerData.settings.crossColor = btn.dataset.color;
+                        applyCrosshairCustomization();
+                        saveGame();
+                    };
+                });
+
+                $("#crossSizeSlider").oninput = (e) => {
+                    $("#crossSizeOut").textContent = e.target.value + "px";
+                    PlayerData.settings.crossSize = +e.target.value;
+                    applyCrosshairCustomization();
+                    saveGame();
+                };
+                $("#sensitivity").oninput = (e) => {
+                    $("#sensOut").textContent = e.target.value + "%";
+                    PlayerData.settings.sensitivity = +e.target.value;
+                    saveGame();
+                };
+                $("#volume").oninput = (e) => {
+                    $("#volOut").textContent = e.target.value + "%";
+                    PlayerData.settings.volume = +e.target.value;
+                    saveGame();
+                };
+                $("#fovSlider").oninput = (e) => {
+                    $("#fovOut").textContent = e.target.value;
+                    PlayerData.settings.fov = +e.target.value;
+                    camera.fov = PlayerData.settings.fov;
+                    camera.updateProjectionMatrix();
+                    saveGame();
+                };
+            }
+
+            // ---- MOBILE JOYSTICK ----
+            function bindMobileJoystick() {
+                let joystickZone = $("#joystickZone"),
+                    joystickThumb = $("#joystickThumb");
+                let joyTouchId = null,
+                    startX = 0,
+                    startY = 0;
+                const maxDist = 48;
+                if (!joystickZone) return;
+
+                joystickZone.addEventListener("touchstart", (e) => {
+                    let t = e.changedTouches[0];
+                    joyTouchId = t.identifier;
+                    let rect = joystickZone.getBoundingClientRect();
+                    startX = rect.left + rect.width / 2;
+                    startY = rect.top + rect.height / 2;
+                    touchMovement.active = true;
+                    e.preventDefault();
+                });
+
+                window.addEventListener("touchmove", (e) => {
+                    for (let i = 0; i < e.changedTouches.length; i++) {
+                        let t = e.changedTouches[i];
+                        if (t.identifier === joyTouchId) {
+                            let dx = t.clientX - startX,
+                                dy = t.clientY - startY,
+                                dist = Math.hypot(dx, dy);
+                            if (dist > maxDist) { dx = (dx / dist) * maxDist;
+                                dy = (dy / dist) * maxDist; }
+                            joystickThumb.style.transform = `translate(${dx}px, ${dy}px)`;
+                            touchMovement.x = dx / maxDist;
+                            touchMovement.y = -dy / maxDist;
+                            touchMovement.sprint = dist > maxDist * 0.82;
+                            e.preventDefault();
+                        }
+                    }
+                });
+
+                const resetJoy = (e) => {
+                    for (let i = 0; i < e.changedTouches.length; i++) {
+                        if (e.changedTouches[i].identifier === joyTouchId) {
+                            joyTouchId = null;
+                            touchMovement.active = false;
+                            touchMovement.x = 0;
+                            touchMovement.y = 0;
+                            touchMovement.sprint = false;
+                            joystickThumb.style.transform = `translate(0px, 0px)`;
+                        }
+                    }
+                };
+                window.addEventListener("touchend", resetJoy);
+                window.addEventListener("touchcancel", resetJoy);
+
+                let lookTouchId = null,
+                    lastLookX = 0,
+                    lastLookY = 0;
+                renderer.domElement.addEventListener("touchstart", (e) => {
+                    for (let i = 0; i < e.changedTouches.length; i++) {
+                        let t = e.changedTouches[i];
+                        if (t.clientX > window.innerWidth * 0.35 && lookTouchId === null) {
+                            lookTouchId = t.identifier;
+                            lastLookX = t.clientX;
+                            lastLookY = t.clientY;
+                        }
+                    }
+                });
+
+                window.addEventListener("touchmove", (e) => {
+                    for (let i = 0; i < e.changedTouches.length; i++) {
+                        let t = e.changedTouches[i];
+                        if (t.identifier === lookTouchId) {
+                            let dx = t.clientX - lastLookX,
+                                dy = t.clientY - lastLookY;
+                            lastLookX = t.clientX;
+                            lastLookY = t.clientY;
+                            let sens = (0.0006 + (PlayerData.settings.sensitivity / 100) * 0.0035) * 1.6;
+                            W.yaw -= dx * sens;
+                            W.pitch = clamp(W.pitch - dy * sens, -0.85, 0.65);
+                        }
+                    }
+                });
+
+                const resetLook = (e) => {
+                    for (let i = 0; i < e.changedTouches.length; i++) {
+                        if (e.changedTouches[i].identifier === lookTouchId) lookTouchId = null;
+                    }
+                };
+                window.addEventListener("touchend", resetLook);
+                window.addEventListener("touchcancel", resetLook);
+
+                $("#btnFire").addEventListener("touchstart", (e) => { e.preventDefault();
+                    W.audio.resume(); if (W.build) placeBuild();
+                    else player.attack(); });
+                $("#btnJump").addEventListener("touchstart", (e) => { e.preventDefault();
+                    touchJumpTrigger = true; });
+                $("#btnSlide").addEventListener("touchstart", (e) => { e.preventDefault();
+                    touchSlideTrigger = true; });
+                $("#btnAim").addEventListener("touchstart", (e) => { e.preventDefault();
+                    touchAiming = !touchAiming;
+                    $("#btnAim").style.background = touchAiming ? "var(--lime)" : "";
+                    $("#btnAim").style.color = touchAiming ? "#111" : "#fff"; });
+                $("#btnBuild").addEventListener("touchstart", (e) => { e.preventDefault();
+                    toggleBuild(); });
+                $("#btnShop").addEventListener("touchstart", (e) => { e.preventDefault();
+                    openShop(); });
+                $("#btnLoot").addEventListener("touchstart", (e) => { e.preventDefault();
+                    player.pickup(); });
+                $("#btnReload").addEventListener("touchstart", (e) => { e.preventDefault(); if (W.build) W.buildRot = (W
+                        .buildRot + 1) % 4;
+                    else player.reload(); });
+                $("#btnPov").addEventListener("touchstart", (e) => { e.preventDefault();
+                    togglePerspective(); });
+            }
+
+            let settingsFrom = "menu";
+
+            function showSettings(from) { settingsFrom = from;
+                $("#menu").classList.add("hidden");
+                $("#pause").classList.add("hidden");
+                $("#settings").classList.remove("hidden"); }
+
+            function closeSettings() { $("#settings").classList.add("hidden");
+                $(settingsFrom === "menu" ? "#menu" : "#pause").classList.remove("hidden"); }
+
+            // ---- GAME FLOW ----
+            function start() {
+                $("#menu").classList.add("hidden");
+                $("#hud").classList.remove("hidden");
+                W.started = true;
+                W.phase = "playing";
+                W.audio.resume();
+                if (!isTouchDevice) {
+                    try { renderer.domElement.requestPointerLock?.(); } catch (_) {}
+                }
+                toast("MATCH STARTED — MODE: " + W.mode.toUpperCase());
+            }
+
+            function togglePause() {
+                if (!W.started || W.phase === "ended") return;
+                W.paused = !W.paused;
+                $("#pause").classList.toggle("hidden", !W.paused);
+                if (W.paused) document.exitPointerLock?.();
+            }
+
+            function toggleBuild() {
+                W.build = !W.build;
+                preview.visible = W.build;
+                $("#buildInfo").classList.toggle("hidden", !W.build);
+                $("#ammo").classList.toggle("hidden", W.build);
+                toast(W.build ? "BUILD MODE" : "COMBAT MODE");
+            }
+
+            function updateHotbar() {
+                let h = $("#hotbar");
+                if (!h || !player) return;
+                h.innerHTML = "";
+                player.inventory.forEach((w, i) => {
+                    let d = document.createElement("div");
+                    d.className = "slot " + (i === player.slot ? "active " : "") + (w.owned ? "" : "empty");
+                    d.dataset.idx = i;
+                    d.innerHTML =
+                        `<b>${i+1}</b><span>${w.owned ? w.icon : "·"}</span><small>${!w.owned ? "" : w.uses != null ? w.uses : w.mag ? w.clip+"/"+w.ammo : "∞"}</small>`;
+                    d.onclick = () => { player.slot = i;
+                        updateHotbar(); };
+                    h.appendChild(d);
+                });
+                let w = player.weapon;
+                $("#ammo").innerHTML = w.owned ? `<b>${w.mag ? w.clip : "∞"}</b><span>${w.name}${w.ammo ? " · "+w.ammo : ""}</span>` :
+                    "<b>—</b><span>EMPTY</span>";
+            }
+
+            function hitmark(isHeadshot = false) {
+                let hm = $("#hitmarker");
+                hm.classList.add("show");
+                hm.style.color = isHeadshot ? "var(--gold)" : "#fff";
+                W.audio.play(isHeadshot ? "crit" : "hit");
+                setTimeout(() => hm.classList.remove("show"), 110);
+            }
+
+            function toast(t) {
+                let e = $("#toast");
+                e.textContent = t;
+                e.className = "toast";
+                void e.offsetWidth;
+                e.className = "toast";
+            }
+
+            function feed(t) {
+                let d = document.createElement("div");
+                d.className = "feedline";
+                d.textContent = t;
+                $("#feed").prepend(d);
+                setTimeout(() => d.remove(), 5000);
+            }
+
+            function endGame(win) {
+                W.phase = "ended";
+                W.paused = true;
+                document.exitPointerLock?.();
+                $("#end").classList.remove("hidden");
+                $("#endEyebrow").textContent = win ? "VICTORY ROYALE" : "ELIMINATED";
+                $("#endTitle").textContent = win ? "YOU CONQUERED THE ARENA!" : "MATCH FINISHED #" + W.remaining;
+                $("#endKills").textContent = W.kills;
+                let earned = W.kills * 100 + (win ? 500 : 50);
+                $("#endGold").textContent = "+" + earned;
+                PlayerData.gold += earned;
+                if (win) PlayerData.wins++;
+                saveGame();
+            }
+
+            function formatTime(t) { return String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(Math.floor(t % 60))
+                    .padStart(2, "0"); }
+
+            function updateHUD() {
+                if (!W.started) return;
+                $("#healthFill").style.width = player.health + "%";
+                $("#shieldFill").style.width = (player.shield / player.maxShield) * 100 + "%";
+                $("#healthVal").textContent = Math.ceil(player.health);
+                $("#shieldVal").textContent = Math.ceil(player.shield);
+                $("#remaining").textContent = W.remaining;
+                $("#kills").textContent = W.kills;
+                for (const k of ["wood", "stone", "metal"]) $("#" + k).textContent = Math.floor(player.materials[k]);
+                $("#stormTimer").textContent = formatTime(Math.max(0, W.storm.timer));
+                $("#goldVal").textContent = PlayerData.gold;
+                drawMap();
+            }
+
+            function drawMap() {
+                let c = $("#minimap"),
+                    x = c.getContext("2d"),
+                    S = c.width;
+                x.clearRect(0, 0, S, S);
+                x.fillStyle = "#1e5c44";
+                x.beginPath();
+                x.arc(S / 2, S / 2, S * 0.46, 0, TAU);
+                x.fill();
+                if (W.pois) {
+                    x.font = "bold 6px sans-serif";
+                    x.textAlign = "center";
+                    for (const p of W.pois) {
+                        let px = S / 2 + (p[1] / CFG.map) * S,
+                            pz = S / 2 + (p[2] / CFG.map) * S;
+                        x.fillStyle = "rgba(255,255,255,0.6)";
+                        x.fillRect(px - 2, pz - 2, 4, 4);
+                        x.fillText(p[0].split(" ")[0], px, pz - 4);
+                    }
+                }
+                if (W.mode === "br") {
+                    x.strokeStyle = "#8b5cf6";
+                    x.lineWidth = 3;
+                    x.beginPath();
+                    x.arc(S / 2 + (W.storm.cx / CFG.map) * S, S / 2 + (W.storm.cz / CFG.map) * S, (W.storm.radius / CFG
+                        .map) * S, 0, TAU);
+                    x.stroke();
+                }
+                for (const b of W.bots) {
+                    if (b.alive && b.mesh.position.distanceTo(player.mesh.position) < 260) {
+                        x.fillStyle = "#ff4d68";
+                        x.beginPath();
+                        x.arc(S / 2 + (b.mesh.position.x / CFG.map) * S, S / 2 + (b.mesh.position.z / CFG.map) * S, 2.8,
+                            0, TAU);
+                        x.fill();
+                    }
+                }
+                x.save();
+                x.translate(S / 2 + (player.mesh.position.x / CFG.map) * S, S / 2 + (player.mesh.position.z / CFG.map) *
+                S);
+                x.rotate(-W.yaw);
+                x.fillStyle = "#ffffff";
+                x.beginPath();
+                x.moveTo(0, -7);
+                x.lineTo(5, 6);
+                x.lineTo(-5, 6);
+                x.closePath();
+                x.fill();
+                x.restore();
+            }
+
+            // ---- MAIN LOOP ----
+            let frames = 0,
+                lastFps = performance.now();
+
+            function loop() {
+                requestAnimationFrame(loop);
+                let dt = Math.min(clock.getDelta(), 0.05);
+
+                if (W.started && !W.paused) {
+                    W.time += dt;
+                    player.update(dt);
+                    for (const b of W.bots) b.update(dt);
+                    if (W.mode === "br") updateStorm(dt);
+                    particles.update(dt);
+                    updatePreview();
+                    updateHUD();
+                }
+
+                renderer.render(scene, camera);
+                frames++;
+
+                let n = performance.now();
+                if (n - lastFps > 1000) {
+                    let fps = (frames * 1000) / (n - lastFps);
+                    $("#debug").innerHTML =
+                        `FPS: ${fps.toFixed(0)}<br>Mode: ${W.mode.toUpperCase()}<br>Bots: ${W.bots.filter(b=>b.alive).length}`;
+                    frames = 0;
+                    lastFps = n;
+                }
+            }
+
+            // ---- ENSURE READY ----
+            function ensureReady() {
+                if (typeof THREE === "undefined") {
+                    var loadText = document.getElementById('loadText');
+                    if (loadText) loadText.textContent = "Waiting for Three.js engine...";
+                    setTimeout(ensureReady, 200);
+                    return;
+                }
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", init);
+                } else {
+                    init();
+                }
+            }
+
+            // If THREE is already loaded, start; otherwise wait for the loader above.
+            if (typeof THREE !== "undefined") {
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", init);
+                } else {
+                    init();
+                }
+            } else {
+                // The external loader script will call back; but we also start a timer to show menu anyway.
+                setTimeout(function() {
+                    if (W.phase === "loading") {
+                        var loading = document.getElementById('loading');
+                        var menu = document.getElementById('menu');
+                        if (loading) loading.classList.add('hidden');
+                        if (menu) menu.classList.remove('hidden');
+                        W.phase = "menu";
+                        // Try init again if THREE becomes available later
+                        if (typeof THREE !== "undefined") {
+                            try { init(); } catch (_) {}
+                        }
+                    }
+                }, 3000);
+            }
+
+        })();
+    </script>
+</body>
+</html>
